@@ -227,6 +227,9 @@ For production, use sealed-secrets or external-secrets-operator for managing sec
 - Non-root container user
 - Secrets managed via Kubernetes Secrets
 
+## Command
+ngrok http 8080
+
 ## License
 
 MIT
