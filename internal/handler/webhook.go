@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -39,8 +40,9 @@ func (w *Webhook) HandleIncoming(c *gin.Context) {
 
 	body = strings.TrimSpace(body)
 
-	// Process asynchronously to avoid Twilio timeout
-	go w.chatbot.HandleMessage(c.Request.Context(), phone, body)
+	// Process asynchronously — use background context since the request
+	// context is canceled after we return the response.
+	go w.chatbot.HandleMessage(context.Background(), phone, body)
 
 	// Return empty TwiML to acknowledge receipt
 	c.Header("Content-Type", "text/xml")

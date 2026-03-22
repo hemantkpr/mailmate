@@ -110,7 +110,6 @@ func ValidateTwilioSignature(authToken, webhookURL string) gin.HandlerFunc {
 			return
 		}
 
-		// Build the data string for validation
 		data := webhookURL
 		keys := make([]string, 0, len(c.Request.PostForm))
 		for k := range c.Request.PostForm {
@@ -121,7 +120,6 @@ func ValidateTwilioSignature(authToken, webhookURL string) gin.HandlerFunc {
 			data += k + c.Request.PostForm.Get(k)
 		}
 
-		// Compute HMAC-SHA1
 		mac := hmac.New(sha1.New, []byte(authToken))
 		mac.Write([]byte(data))
 		expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
@@ -163,7 +161,7 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
-// formatWebhookURL constructs the full webhook URL for Twilio signature validation.
+// FormatWebhookURL constructs the full webhook URL for Twilio signature validation.
 func FormatWebhookURL(baseURL, path string) string {
 	return fmt.Sprintf("%s%s", strings.TrimRight(baseURL, "/"), path)
 }

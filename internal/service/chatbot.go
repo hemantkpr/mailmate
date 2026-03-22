@@ -19,7 +19,7 @@ type Chatbot struct {
 	google       *provider.Google
 	microsoft    *provider.Microsoft
 	messenger    domain.MessageSender
-	parser       *provider.OpenAI
+	parser       *provider.Gemini
 	users        domain.UserRepository
 	tokens       domain.TokenRepository
 	conversation domain.ConversationRepository
@@ -33,7 +33,7 @@ func NewChatbot(
 	google *provider.Google,
 	microsoft *provider.Microsoft,
 	messenger domain.MessageSender,
-	parser *provider.OpenAI,
+	parser *provider.Gemini,
 	users domain.UserRepository,
 	tokens domain.TokenRepository,
 	conversation domain.ConversationRepository,

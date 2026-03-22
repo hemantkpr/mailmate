@@ -405,12 +405,12 @@ type msGraphEvent struct {
 }
 
 type msGraphEventPayload struct {
-	Subject   string              `json:"subject"`
-	Body      *msGraphBody        `json:"body,omitempty"`
-	Start     *msGraphDateTime    `json:"start,omitempty"`
-	End       *msGraphDateTime    `json:"end,omitempty"`
-	Location  *msGraphLocation    `json:"location,omitempty"`
-	Attendees []msGraphAttendee   `json:"attendees,omitempty"`
+	Subject   string            `json:"subject"`
+	Body      *msGraphBody      `json:"body,omitempty"`
+	Start     *msGraphDateTime  `json:"start,omitempty"`
+	End       *msGraphDateTime  `json:"end,omitempty"`
+	Location  *msGraphLocation  `json:"location,omitempty"`
+	Attendees []msGraphAttendee `json:"attendees,omitempty"`
 }
 
 type msGraphBody struct {

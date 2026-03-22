@@ -19,7 +19,7 @@ services:
       POSTGRES_PASSWORD: changeme
       POSTGRES_DB: mailmate
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./migrations/001_initial.sql:/docker-entrypoint-initdb.d/001_initial.sql

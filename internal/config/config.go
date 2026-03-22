@@ -15,7 +15,7 @@ type Config struct {
 	Google     GoogleConfig
 	Microsoft  MicrosoftConfig
 	Twilio     TwilioConfig
-	OpenAI     OpenAIConfig
+	Gemini     GeminiConfig
 	Encryption EncryptionConfig
 	Log        LogConfig
 }
@@ -70,7 +70,7 @@ type TwilioConfig struct {
 	WhatsAppFrom string
 }
 
-type OpenAIConfig struct {
+type GeminiConfig struct {
 	APIKey string
 	Model  string
 }
@@ -116,8 +116,8 @@ func Load() (*Config, error) {
 			RedirectURL:  baseURL + "/oauth/google/callback",
 		},
 		Microsoft: MicrosoftConfig{
-			ClientID:     mustGetEnv("MICROSOFT_CLIENT_ID"),
-			ClientSecret: mustGetEnv("MICROSOFT_CLIENT_SECRET"),
+			ClientID:     getEnv("MICROSOFT_CLIENT_ID", ""),
+			ClientSecret: getEnv("MICROSOFT_CLIENT_SECRET", ""),
 			TenantID:     getEnv("MICROSOFT_TENANT_ID", "common"),
 			RedirectURL:  baseURL + "/oauth/microsoft/callback",
 		},
@@ -126,9 +126,9 @@ func Load() (*Config, error) {
 			AuthToken:    mustGetEnv("TWILIO_AUTH_TOKEN"),
 			WhatsAppFrom: mustGetEnv("TWILIO_WHATSAPP_FROM"),
 		},
-		OpenAI: OpenAIConfig{
-			APIKey: mustGetEnv("OPENAI_API_KEY"),
-			Model:  getEnv("OPENAI_MODEL", "gpt-4o"),
+		Gemini: GeminiConfig{
+			APIKey: mustGetEnv("GEMINI_API_KEY"),
+			Model:  getEnv("GEMINI_MODEL", "gemini-2.5-flash"),
 		},
 		Encryption: EncryptionConfig{
 			Key: mustGetEnv("ENCRYPTION_KEY"),

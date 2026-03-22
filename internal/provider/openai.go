@@ -6,23 +6,35 @@ import (
 	"fmt"
 	"strings"
 
-	openai "github.com/sashabaranov/go-openai"
+	"github.com/google/generative-ai-go/genai"
+	"google.golang.org/api/option"
 
 	"github.com/hemantkpr/mailmate/internal/config"
 	"github.com/hemantkpr/mailmate/internal/domain"
 )
 
-// OpenAI implements IntentParser using OpenAI function calling.
-type OpenAI struct {
-	client *openai.Client
+// Gemini implements IntentParser using Google Gemini API.
+type Gemini struct {
+	client *genai.Client
 	model  string
 }
 
-// NewOpenAI creates an OpenAI intent parser.
-func NewOpenAI(cfg config.OpenAIConfig) *OpenAI {
-	return &OpenAI{
-		client: openai.NewClient(cfg.APIKey),
+// NewGemini creates a Gemini intent parser.
+func NewGemini(cfg config.GeminiConfig) (*Gemini, error) {
+	client, err := genai.NewClient(context.Background(), option.WithAPIKey(cfg.APIKey))
+	if err != nil {
+		return nil, fmt.Errorf("create gemini client: %w", err)
+	}
+	return &Gemini{
+		client: client,
 		model:  cfg.Model,
+	}, nil
+}
+
+// Close closes the Gemini client.
+func (g *Gemini) Close() {
+	if g.client != nil {
+		g.client.Close()
 	}
 }
 
@@ -44,57 +56,54 @@ Your job is to understand the user's message and classify it into one of these i
 - help: User needs help or wants to know what you can do
 - unknown: Cannot determine intent
 
-Always extract relevant entities from the message. Be smart about interpreting natural language.
-For time references, interpret them relative to the current context (e.g., "tomorrow" means the next day).`
+You MUST respond with ONLY valid JSON (no markdown, no code fences) in this exact format:
+{
+  "intent": "<one of the intents above>",
+  "confidence": <0.0 to 1.0>,
+  "entities": {
+    "provider": "google or microsoft (if mentioned)",
+    "person_name": "name if mentioned",
+    "meeting_subject": "meeting title if mentioned",
+    "new_time": "time reference if mentioned (e.g. 'tomorrow 3pm')",
+    "duration_minutes": 60,
+    "tracking_subject": "what to track if mentioned",
+    "tracking_duration_days": 90,
+    "tracking_notes": "notes for tracking entry",
+    "tracking_completed": true,
+    "date": "date reference",
+    "attendees": ["email1@example.com"],
+    "location": "location if mentioned"
+  }
+}
 
-// ParseIntent uses OpenAI function calling to extract structured intent from user messages.
-func (o *OpenAI) ParseIntent(ctx context.Context, message string, history []domain.ConversationMessage) (*domain.ParsedIntent, error) {
-	messages := []openai.ChatCompletionMessage{
-		{Role: openai.ChatMessageRoleSystem, Content: systemPrompt},
-	}
+Only include entity fields that are relevant. Always extract relevant entities from the message. Be smart about interpreting natural language.`
 
-	// Add recent conversation history for context
+// ParseIntent uses Gemini to extract structured intent from user messages.
+func (g *Gemini) ParseIntent(ctx context.Context, message string, history []domain.ConversationMessage) (*domain.ParsedIntent, error) {
+	model := g.client.GenerativeModel(g.model)
+	model.SystemInstruction = genai.NewUserContent(genai.Text(systemPrompt))
+	model.ResponseMIMEType = "application/json"
+
+	cs := model.StartChat()
+
+	// Add conversation history for context
 	for _, h := range history {
-		role := openai.ChatMessageRoleUser
+		role := "user"
 		if h.Role == "assistant" {
-			role = openai.ChatMessageRoleAssistant
+			role = "model"
 		}
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    role,
-			Content: h.Message,
+		cs.History = append(cs.History, &genai.Content{
+			Parts: []genai.Part{genai.Text(h.Message)},
+			Role:  role,
 		})
 	}
 
-	messages = append(messages, openai.ChatCompletionMessage{
-		Role:    openai.ChatMessageRoleUser,
-		Content: message,
-	})
-
-	resp, err := o.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model:    o.model,
-		Messages: messages,
-		Tools: []openai.Tool{
-			{
-				Type: openai.ToolTypeFunction,
-				Function: &openai.FunctionDefinition{
-					Name:        "classify_intent",
-					Description: "Classify the user's message into an intent and extract entities",
-					Parameters:  intentSchema(),
-				},
-			},
-		},
-		ToolChoice: openai.ToolChoice{
-			Type: openai.ToolTypeFunction,
-			Function: openai.ToolFunction{
-				Name: "classify_intent",
-			},
-		},
-	})
+	resp, err := cs.SendMessage(ctx, genai.Text(message))
 	if err != nil {
-		return nil, fmt.Errorf("openai chat completion: %w", err)
+		return nil, fmt.Errorf("gemini chat: %w", err)
 	}
 
-	if len(resp.Choices) == 0 {
+	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
 		return &domain.ParsedIntent{
 			Intent:     domain.IntentUnknown,
 			RawMessage: message,
@@ -102,14 +111,7 @@ func (o *OpenAI) ParseIntent(ctx context.Context, message string, history []doma
 		}, nil
 	}
 
-	choice := resp.Choices[0]
-	if len(choice.Message.ToolCalls) == 0 {
-		return &domain.ParsedIntent{
-			Intent:     domain.IntentUnknown,
-			RawMessage: message,
-			Entities:   make(map[string]interface{}),
-		}, nil
-	}
+	text := fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])
 
 	var result struct {
 		Intent     string                 `json:"intent"`
@@ -117,9 +119,12 @@ func (o *OpenAI) ParseIntent(ctx context.Context, message string, history []doma
 		Entities   map[string]interface{} `json:"entities"`
 	}
 
-	args := choice.Message.ToolCalls[0].Function.Arguments
-	if err := json.Unmarshal([]byte(args), &result); err != nil {
-		return nil, fmt.Errorf("parse function args: %w", err)
+	if err := json.Unmarshal([]byte(text), &result); err != nil {
+		return &domain.ParsedIntent{
+			Intent:     domain.IntentUnknown,
+			RawMessage: message,
+			Entities:   make(map[string]interface{}),
+		}, nil
 	}
 
 	return &domain.ParsedIntent{
@@ -131,106 +136,19 @@ func (o *OpenAI) ParseIntent(ctx context.Context, message string, history []doma
 }
 
 // GenerateResponse generates a natural language response for the user.
-func (o *OpenAI) GenerateResponse(ctx context.Context, systemCtx, userMessage string) (string, error) {
-	resp, err := o.client.CreateChatCompletion(ctx, openai.ChatCompletionRequest{
-		Model: o.model,
-		Messages: []openai.ChatCompletionMessage{
-			{Role: openai.ChatMessageRoleSystem, Content: systemCtx},
-			{Role: openai.ChatMessageRoleUser, Content: userMessage},
-		},
-		MaxTokens:   500,
-		Temperature: 0.7,
-	})
+func (g *Gemini) GenerateResponse(ctx context.Context, systemCtx, userMessage string) (string, error) {
+	model := g.client.GenerativeModel(g.model)
+	model.SystemInstruction = genai.NewUserContent(genai.Text(systemCtx))
+
+	resp, err := model.GenerateContent(ctx, genai.Text(userMessage))
 	if err != nil {
-		return "", fmt.Errorf("generate response: %w", err)
+		return "", fmt.Errorf("gemini generate: %w", err)
 	}
 
-	if len(resp.Choices) == 0 {
+	if len(resp.Candidates) == 0 || len(resp.Candidates[0].Content.Parts) == 0 {
 		return "I'm sorry, I couldn't generate a response.", nil
 	}
-	return strings.TrimSpace(resp.Choices[0].Message.Content), nil
-}
-
-func intentSchema() json.RawMessage {
-	schema := `{
-		"type": "object",
-		"properties": {
-			"intent": {
-				"type": "string",
-				"enum": [
-					"connect_email", "disconnect_email", "list_emails", "list_meetings",
-					"reschedule_meeting", "create_meeting", "cancel_meeting",
-					"start_tracking", "log_tracking", "view_tracking", "stop_tracking",
-					"daily_summary", "help", "unknown"
-				],
-				"description": "The classified intent of the user's message"
-			},
-			"confidence": {
-				"type": "number",
-				"minimum": 0,
-				"maximum": 1,
-				"description": "Confidence score for the classified intent"
-			},
-			"entities": {
-				"type": "object",
-				"properties": {
-					"provider": {
-						"type": "string",
-						"enum": ["google", "microsoft"],
-						"description": "Email provider (google for Gmail, microsoft for Outlook)"
-					},
-					"person_name": {
-						"type": "string",
-						"description": "Name of a person mentioned in the message"
-					},
-					"meeting_subject": {
-						"type": "string",
-						"description": "Subject or title of a meeting"
-					},
-					"new_time": {
-						"type": "string",
-						"description": "New time for rescheduling (ISO 8601 or natural language like 'tomorrow 3pm')"
-					},
-					"duration_minutes": {
-						"type": "integer",
-						"description": "Duration in minutes for a meeting"
-					},
-					"tracking_subject": {
-						"type": "string",
-						"description": "What the user wants to track (e.g., 'gym progress', 'meditation')"
-					},
-					"tracking_duration_days": {
-						"type": "integer",
-						"description": "Number of days for tracking"
-					},
-					"tracking_notes": {
-						"type": "string",
-						"description": "Notes for a tracking log entry"
-					},
-					"tracking_completed": {
-						"type": "boolean",
-						"description": "Whether the tracking entry is marked as completed"
-					},
-					"date": {
-						"type": "string",
-						"description": "A date reference in the message"
-					},
-					"attendees": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "List of attendee emails"
-					},
-					"location": {
-						"type": "string",
-						"description": "Location for a meeting"
-					}
-				},
-				"description": "Extracted entities from the message"
-			}
-		},
-		"required": ["intent", "confidence", "entities"]
-	}`
-	return json.RawMessage(schema)
+	return strings.TrimSpace(fmt.Sprintf("%v", resp.Candidates[0].Content.Parts[0])), nil
 }
 
 func mapIntent(s string) domain.Intent {

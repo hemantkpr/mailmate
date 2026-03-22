@@ -31,8 +31,6 @@ func NewWhatsApp(cfg config.TwilioConfig) *WhatsApp {
 
 // SendMessage sends a WhatsApp message via Twilio.
 func (w *WhatsApp) SendMessage(ctx context.Context, to, message string) error {
-	// Twilio has a 1600 character limit for WhatsApp messages.
-	// Split long messages if needed.
 	chunks := splitMessage(message, 1500)
 	for _, chunk := range chunks {
 		params := &twilioApi.CreateMessageParams{}
