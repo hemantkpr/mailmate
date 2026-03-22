@@ -1,0 +1,108 @@
+replicaCount: 2
+
+image:
+  repository: mailmate
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rate-limit: "60"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+  hosts:
+    - host: mailmate.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mailmate-tls
+      hosts:
+        - mailmate.example.com
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+
+# Application configuration
+config:
+  SERVER_PORT: "8080"
+  SERVER_HOST: "0.0.0.0"
+  DB_HOST: "mailmate-postgresql"
+  DB_PORT: "5432"
+  DB_NAME: "mailmate"
+  DB_SSL_MODE: "require"
+  DB_MAX_CONNS: "25"
+  REDIS_ADDR: "mailmate-redis-master:6379"
+  REDIS_DB: "0"
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+
+# Secrets (override in production via sealed-secrets or external-secrets)
+secrets:
+  SERVER_BASE_URL: "https://mailmate.example.com"
+  DB_USER: "mailmate"
+  DB_PASSWORD: "changeme"
+  REDIS_PASSWORD: ""
+  GOOGLE_CLIENT_ID: ""
+  GOOGLE_CLIENT_SECRET: ""
+  MICROSOFT_CLIENT_ID: ""
+  MICROSOFT_CLIENT_SECRET: ""
+  MICROSOFT_TENANT_ID: "common"
+  TWILIO_ACCOUNT_SID: ""
+  TWILIO_AUTH_TOKEN: ""
+  TWILIO_WHATSAPP_FROM: "whatsapp:+14155238886"
+  OPENAI_API_KEY: ""
+  OPENAI_MODEL: "gpt-4o"
+  ENCRYPTION_KEY: ""
+
+# PostgreSQL subchart
+postgresql:
+  enabled: true
+  auth:
+    username: mailmate
+    password: changeme
+    database: mailmate
+  primary:
+    persistence:
+      size: 10Gi
+
+# Redis subchart
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      size: 1Gi
+
+probes:
+  liveness:
+    path: /healthz
+    initialDelaySeconds: 10
+    periodSeconds: 15
+  readiness:
+    path: /readyz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
